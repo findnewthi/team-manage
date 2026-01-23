@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: team-manage-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./team_manage.db:/app/team_manage.db
+      - ./.env:/app/.env
+    restart: always
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./team_manage.db

@@ -144,6 +144,46 @@ python app/main.py
 - 用户名: `admin`
 - 密码: `admin123`（请在首次登录后修改）
 
+---
+
+## 🐳 Docker 部署 (推荐)
+
+项目支持使用 Docker 快速部署，确保环境一致性并简化配置。
+
+### 1. 准备工作
+
+确保你的系统已安装：
+- Docker
+- Docker Compose
+
+### 2. 快速启动
+
+1.  克隆项目并进入目录。
+2.  配置 `.env` 文件（参考上述"配置环境变量"章节）。
+3.  运行 Docker Compose 命令：
+
+```bash
+# 构建并启动容器
+docker compose up -d
+```
+
+### 3. 数据持久化
+
+Docker 配置中已自动将宿主机的 `team_manage.db` 文件映射到容器内部，因此你的数据会自动保存在项目根目录下，容器删除后数据依然存在。
+
+### 4. 常用命令
+
+```bash
+# 查看日志
+docker compose logs -f
+
+# 停止并移除容器
+docker compose down
+
+# 重新构建镜像
+docker compose build --no-cache
+```
+
 ## 📁 项目结构
 
 ```
@@ -182,6 +222,9 @@ team-manage/
 │       └── js/                 # JavaScript 文件
 ├── init_db.py                  # 数据库初始化脚本
 ├── requirements.txt            # Python 依赖
+├── Dockerfile                  # Docker 镜像构建文件
+├── docker-compose.yml          # Docker 服务编排文件
+├── .dockerignore               # Docker 忽略文件
 ├── .env.example                # 环境变量示例
 ├── CLAUDE.md                   # Claude Code 指南
 ├── 需求.md                     # 项目需求文档
