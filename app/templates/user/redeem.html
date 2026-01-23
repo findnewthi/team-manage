@@ -15,7 +15,28 @@
         <div class="header">
             <h1>GPT Team 兑换</h1>
             <p class="subtitle">使用兑换码加入 ChatGPT Team</p>
+            {% if remaining_spots is not none %}
+            <div class="spots-badge">
+                <i data-lucide="users"></i> 剩余车位: {{ remaining_spots }}
+            </div>
+            {% endif %}
         </div>
+
+
+        <style>
+            .spots-badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                background: rgba(255, 255, 255, 0.1);
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 0.9rem;
+                color: var(--primary-light);
+                margin-top: 10px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        </style>
 
         <!-- 步骤1: 输入兑换码 -->
         <div id="step1" class="step active">
@@ -40,23 +61,14 @@
             </div>
         </div>
 
-        <!-- 步骤2: 选择Team -->
-        <div id="step2" class="step">
+        <!-- 步骤2: 选择Team (已废弃，保留占位符防止 JS 报错) -->
+        <div id="step2" class="step" style="display: none;">
             <div class="card">
                 <h2>选择 Team</h2>
-                <p class="step-desc">请选择您要加入的 Team</p>
-
-                <div id="teamsList" class="teams-list">
-                    <!-- Team卡片将通过JavaScript动态生成 -->
-                </div>
-
+                <div id="teamsList" class="teams-list"></div>
                 <div class="actions">
-                    <button onclick="backToStep1()" class="btn btn-secondary">
-                        <i data-lucide="arrow-left"></i> 返回
-                    </button>
-                    <button onclick="autoSelectTeam()" class="btn btn-primary">
-                        <i data-lucide="zap"></i> 自动选择
-                    </button>
+                    <button onclick="backToStep1()" class="btn btn-secondary">返回</button>
+                    <button onclick="autoSelectTeam()" class="btn btn-primary">自动选择</button>
                 </div>
             </div>
         </div>
@@ -76,7 +88,7 @@
 
     <script src="{{ url_for('static', path='/js/redeem.js') }}"></script>
     <script>
-        lucide.createIcons();
+        if (window.lucide) lucide.createIcons();
     </script>
 </body>
 

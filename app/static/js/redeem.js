@@ -54,7 +54,7 @@ function backToStep1() {
     selectedTeamId = null;
 }
 
-// 步骤1: 验证兑换码
+// 步骤1: 验证兑换码并直接兑换
 document.getElementById('verifyForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -74,47 +74,14 @@ document.getElementById('verifyForm').addEventListener('submit', async (e) => {
 
     // 禁用按钮
     verifyBtn.disabled = true;
-    verifyBtn.textContent = '验证中...';
+    verifyBtn.textContent = '正在兑换...';
 
-    try {
-        const response = await fetch('/redeem/verify', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ code })
-        });
+    // 直接调用兑换接口 (team_id = null 表示自动选择)
+    await confirmRedeem(null);
 
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-            if (data.valid) {
-                // 兑换码有效
-                availableTeams = data.teams;
-
-                if (availableTeams.length === 0) {
-                    showToast('暂无可用的 Team', 'error');
-                    verifyBtn.disabled = false;
-                    verifyBtn.textContent = '验证兑换码';
-                    return;
-                }
-
-                // 显示Team列表
-                renderTeamsList();
-                showStep(2);
-            } else {
-                // 兑换码无效
-                showToast(data.reason || '兑换码无效', 'error');
-            }
-        } else {
-            showToast(data.error || '验证失败', 'error');
-        }
-    } catch (error) {
-        showToast('网络错误,请稍后重试', 'error');
-    } finally {
-        verifyBtn.disabled = false;
-        verifyBtn.textContent = '验证兑换码';
-    }
+    // 恢复按钮状态 (如果 confirmRedeem 失败并显示了错误也没关系，因为用户可以点返回重试)
+    verifyBtn.disabled = false;
+    verifyBtn.textContent = '验证兑换码';
 });
 
 // 渲染Team列表

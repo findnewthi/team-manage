@@ -3,8 +3,10 @@
 处理用户兑换页面
 """
 import logging
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -15,24 +17,35 @@ router = APIRouter(
 
 
 @router.get("/", response_class=HTMLResponse)
-async def redeem_page(request: Request):
+async def redeem_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
     """
     用户兑换页面
 
     Args:
         request: FastAPI Request 对象
+        db: 数据库会话
 
     Returns:
         用户兑换页面 HTML
     """
     try:
         from app.main import templates
+        from app.services.team import TeamService
+        
+        team_service = TeamService()
+        remaining_spots = await team_service.get_total_available_spots(db)
 
-        logger.info("用户访问兑换页面")
+        logger.info(f"用户访问兑换页面，剩余车位: {remaining_spots}")
 
         return templates.TemplateResponse(
             "user/redeem.html",
-            {"request": request}
+            {
+                "request": request,
+                "remaining_spots": remaining_spots
+            }
         )
 
     except Exception as e:
