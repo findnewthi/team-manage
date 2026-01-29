@@ -2,6 +2,21 @@
 
 一个基于 FastAPI 的 ChatGPT Team 账号管理系统，支持管理员批量管理 Team 账号，用户通过兑换码自动加入 Team。
 
+## 🚀 Docker 一键部署 & 更新
+
+### 一键部署
+```bash
+git clone https://github.com/tibbar213/team-manage.git
+cd team-manage
+cp .env.example .env
+docker compose up -d
+```
+
+### 一键更新
+```bash
+git pull && docker compose down && docker compose up -d --build
+```
+
 ## ✨ 功能特性
 
 ### 管理员功能
@@ -60,7 +75,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/tibbar213/team-manage.git
 cd team-manage
 ```
 
