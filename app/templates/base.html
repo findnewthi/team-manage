@@ -94,8 +94,8 @@
                     <form id="singleImportForm" onsubmit="handleSingleImport(event)">
                         <div class="form-group">
                             <label>Access Token (AT) <span class="required">*</span></label>
-                            <textarea name="accessToken" class="form-control" rows="2"
-                                placeholder="eyJhbGciOiJSUzI1Ni..." required></textarea>
+                            <input type="text" name="accessToken" class="form-control"
+                                placeholder="eyJhbGciOiJSUzI1Ni..." required>
                             <small class="form-text">必填项，以 eyJ 开头的 JWT Token</small>
                         </div>
                         <div class="form-group">
@@ -105,7 +105,7 @@
                         </div>
                         <div class="form-group">
                             <label>Session Token</label>
-                            <textarea name="sessionToken" class="form-control" rows="2" placeholder="eyJ..."></textarea>
+                            <input type="text" name="sessionToken" class="form-control" placeholder="eyJ...">
                             <small class="form-text">可选，作为备选刷新方式</small>
                         </div>
                         <div class="form-group">
