@@ -156,24 +156,38 @@ class RedeemFlowService:
         完整的兑换流程 (带事务和并发控制)
         优化版本: 将网络请求移出写事务,避免 SQLite 锁定
         """
+        # 1. 预执行验证 (不加锁)
+        # 确认兑换码基本有效，避免在循环中重复验证相同逻辑
+        validate_result = await self.redemption_service.validate_code(code, db_session)
+        if not validate_result["success"]:
+            return {"success": False, "error": validate_result["error"]}
+        if not validate_result["valid"]:
+            return {"success": False, "error": validate_result["reason"]}
+
         max_retries = 3
         current_target_team_id = team_id
         last_error = "未知错误"
 
         for attempt in range(max_retries):
+            # 确保每次尝试都从数据库读取最新数据, 避免 identity map 缓存了上一次尝试修改后的状态
+            db_session.expire_all()
+            
             logger.info(f"正在尝试兑换 (第 {attempt + 1}/{max_retries} 次尝试): email={email}, code={code}")
             team_id_final = None
             try:
                 # --- 阶段 1: 验证并占位 (短事务) ---
-                # 显式管理事务
                 async with db_session.begin():
-                    # 1. 验证兑换码
-                    validate_result = await self.redemption_service.validate_code(code, db_session)
+                    # 再次验证并锁定 (带锁锁定，防止并发)
+                    stmt = select(RedemptionCode).where(RedemptionCode.code == code).with_for_update()
+                    result = await db_session.execute(stmt)
+                    redemption_code = result.scalar_one_or_none()
+                    
+                    if not redemption_code:
+                        return {"success": False, "error": "兑换码记录丢失"}
 
-                    if not validate_result["success"]:
-                        return {"success": False, "error": validate_result["error"]}
-                    if not validate_result["valid"]:
-                        return {"success": False, "error": validate_result["reason"]}
+                    # 检查状态是否依然有效 (可能在循环间隙被别人捷足先登)
+                    if redemption_code.status not in ["unused", "warranty_active"]:
+                        return {"success": False, "error": "兑换码已被使用"}
 
                     # 2. 选择 Team
                     if current_target_team_id is None:
@@ -190,10 +204,12 @@ class RedeemFlowService:
                     team = result.scalar_one_or_none()
 
                     if not team:
-                        return {"success": False, "error": f"Team ID {team_id_final} 不存在"}
+                        if current_target_team_id is None and attempt < max_retries - 1:
+                            logger.warning(f"选择的 Team {team_id_final} 消失了, 尝试下一次循环")
+                            continue
+                        return {"success": False, "error": f"Team {team_id_final} 不存在"}
                     
                     if team.current_members >= team.max_members:
-                        # 如果是自动选号发现满了, 理论上 select_team_auto 不会选到, 但为了安全
                         if current_target_team_id is None and attempt < max_retries - 1:
                             logger.warning(f"选择的 Team {team_id_final} 已满, 尝试下一次循环")
                             continue 
@@ -205,40 +221,28 @@ class RedeemFlowService:
                             continue
                         return {"success": False, "error": f"Team 状态异常: {team.status}"}
 
-                    # 4. 锁定并更新兑换码状态 (先占位，防止并发使用同一码)
-                    stmt = select(RedemptionCode).where(RedemptionCode.code == code).with_for_update()
-                    result = await db_session.execute(stmt)
-                    redemption_code = result.scalar_one_or_none()
-                    
-                    if not redemption_code:
-                        return {"success": False, "error": "兑换码不存在"}
-                    
-                    # 特殊处理质保码
+                    # 特殊处理质保码逻辑
                     is_warranty_code = redemption_code.has_warranty
                     is_first_use = redemption_code.status == "unused"
                     
                     if not is_first_use:
                         # 如果不是首次使用，检查是否为质保码且可重复使用
                         if is_warranty_code:
-                            # 验证质保码是否可重复使用
                             warranty_check = await self.warranty_service.validate_warranty_reuse(
                                 db_session, code, email
                             )
                             if not warranty_check["success"] or not warranty_check["can_reuse"]:
-                                return {"success": False, "error": warranty_check.get("reason", "兑换码已被使用")}
+                                return {"success": False, "error": warranty_check.get("reason", "兑换码质保验证未通过")}
                         else:
-                            return {"success": False, "error": "兑换码已被占用或失效"}
+                            return {"success": False, "error": "兑换码已被占用"}
 
-                    # 更新兑换码状态
+                    # 4. 更新状态执行占位
                     if is_warranty_code:
-                        # 质保码使用特殊状态
                         redemption_code.status = "warranty_active"
-                        # 首次使用时设置质保到期时间
                         if is_first_use:
                             warranty_days = redemption_code.warranty_days or 30
                             redemption_code.warranty_expires_at = get_now() + timedelta(days=warranty_days)
                     else:
-                        # 普通码标记为已使用
                         redemption_code.status = "used"
                     
                     redemption_code.used_by_email = email
@@ -250,36 +254,29 @@ class RedeemFlowService:
                     if team.current_members >= team.max_members:
                         team.status = "full"
                     
-                    # 记录 Team 信息以便阶段 2 使用
+                    # 记录信息供 Phase 2 使用
                     final_team_account_id = team.account_id
                     final_team_name = team.team_name
                     final_team_expires_at = team.expires_at
                     final_access_token_encrypted = team.access_token_encrypted
                     final_is_warranty = is_warranty_code
                     
-                    # 事务会自动 commit
+                    # 事务 commit
                 
-                # --- 阶段 2: 网络请求 (非阻塞事务) ---
-                # 5. 解密 AT Token
+                # --- 阶段 2: 网络请求 ---
                 try:
                     access_token = encryption_service.decrypt_token(final_access_token_encrypted)
                 except Exception as e:
                     logger.error(f"解密 Token 失败: {e}")
-                    # 需要回退
                     await self._rollback_redemption(db_session, code, team_id_final)
-                    return {"success": False, "error": f"解密 Token 失败: {str(e)}"}
+                    return {"success": False, "error": f"系统解密失败: {str(e)}"}
 
-                # 6. 调用 ChatGPT API 发送邀请
                 invite_result = await self.chatgpt_service.send_invite(
-                    access_token,
-                    final_team_account_id,
-                    email,
-                    db_session
+                    access_token, final_team_account_id, email, db_session
                 )
 
-                # --- 阶段 3: 最终化或回滚 ---
+                # --- 阶段 3: 最终化 ---
                 if invite_result["success"]:
-                    # 7. 成功：补全记录
                     async with db_session.begin():
                         redemption_record = RedemptionRecord(
                             email=email,
@@ -290,7 +287,7 @@ class RedeemFlowService:
                         )
                         db_session.add(redemption_record)
                     
-                    logger.info(f"兑换成功: {email} 加入 Team {team_id_final} (兑换码: {code})")
+                    logger.info(f"兑换成功: {email} 加入 Team {team_id_final}")
                     return {
                         "success": True,
                         "message": f"成功加入 Team: {final_team_name}",
@@ -299,61 +296,45 @@ class RedeemFlowService:
                             "team_name": final_team_name,
                             "account_id": final_team_account_id,
                             "expires_at": final_team_expires_at.isoformat() if final_team_expires_at else None
-                        },
-                        "error": None
+                        }
                     }
                 else:
-                    # 8. 失败：回退阶段 1 的占位
-                    logger.warning(f"API 发送邀请失败 (尝试 {attempt + 1}), 执行回退: {invite_result['error']}")
+                    logger.warning(f"API 邀请失败 (尝试 {attempt + 1}): {invite_result['error']}")
                     await self._rollback_redemption(db_session, code, team_id_final)
                     
-                    # 检查是否为封号或 Token 失效
                     error_msg = invite_result.get("error", "未知错误")
                     
-                    # 获取 Team 对象以更新状态 (独立查询，不影响回退)
+                    # 致命错误处理
                     stmt = select(Team).where(Team.id == team_id_final)
-                    result = await db_session.execute(stmt)
-                    team = result.scalar_one_or_none()
+                    res = await db_session.execute(stmt)
+                    target_team = res.scalar_one_or_none()
                     
                     is_fatal = False
-                    if team and await self.team_service._handle_api_error(invite_result, team, db_session):
+                    if target_team and await self.team_service._handle_api_error(invite_result, target_team, db_session):
                         is_fatal = True
                         if invite_result.get("error_code") == "account_deactivated":
-                            error_msg = "该 Team 账号已被封禁"
+                            error_msg = "Team 账号被封禁"
                         elif invite_result.get("error_code") == "token_invalidated":
-                            error_msg = "该 Team 账号 Token 已失效"
-                        elif invite_result.get("error_code") == "invalid_grant":
-                            error_msg = "该 Team 账号授权已失效"
+                            error_msg = "Team 账号 Token 失效"
                     
                     last_error = error_msg
-
-                    # 如果是致命错误（封号/失效）且还有重试次数，尝试换一个 Team
                     if is_fatal and attempt < max_retries - 1:
-                        logger.info(f"检测到 Team {team_id_final} 致命错误，准备自动更换 Team 重试...")
-                        current_target_team_id = None # 下次尝试自动选号
+                        logger.info(f"致命错误，尝试更换 Team 重试...")
+                        current_target_team_id = None
                         continue
                     else:
-                        return {
-                            "success": False,
-                            "error": f"发送邀请失败: {error_msg}"
-                        }
+                        return {"success": False, "error": f"加入失败: {error_msg}"}
 
             except Exception as e:
-                logger.error(f"兑换流程第 {attempt + 1} 次尝试异常: {e}")
-                # 如果在阶段 2 或 3 发生未捕获异常，尝试回退
+                logger.error(f"兑换尝试异常 (第 {attempt + 1} 次): {e}")
                 if team_id_final:
                     try:
                         await self._rollback_redemption(db_session, code, team_id_final)
                     except:
                         pass
-                
                 if attempt < max_retries - 1:
                     continue
-                    
-                return {
-                    "success": False,
-                    "error": f"兑换系统异常: {str(e)}"
-                }
+                return {"success": False, "error": f"兑换系统异常: {str(e)}"}
 
     async def _rollback_redemption(
         self,
