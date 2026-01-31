@@ -91,6 +91,11 @@ def run_auto_migration():
             logger.info("添加 teams.client_id 字段")
             cursor.execute("ALTER TABLE teams ADD COLUMN client_id VARCHAR(100)")
             migrations_applied.append("teams.client_id")
+
+        if not column_exists(cursor, "teams", "error_count"):
+            logger.info("添加 teams.error_count 字段")
+            cursor.execute("ALTER TABLE teams ADD COLUMN error_count INTEGER DEFAULT 0")
+            migrations_applied.append("teams.error_count")
         
         # 提交更改
         conn.commit()
