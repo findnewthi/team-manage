@@ -44,17 +44,18 @@ function showToast(message, type = 'info') {
 function showStep(stepNumber) {
     document.querySelectorAll('.step').forEach(step => {
         step.classList.remove('active');
+        step.style.display = ''; // 清除内联样式，交由CSS类控制显隐
     });
-    document.getElementById(`step${stepNumber}`).classList.add('active');
+    const targetStep = document.getElementById(`step${stepNumber}`);
+    if (targetStep) {
+        targetStep.classList.add('active');
+    }
 }
 
 // 返回步骤1
 function backToStep1() {
     showStep(1);
     selectedTeamId = null;
-    // 隐藏质保结果
-    document.getElementById('warrantyResult').style.display = 'none';
-    document.getElementById('step1').style.display = 'block';
 }
 
 // 步骤1: 验证兑换码并直接兑换
