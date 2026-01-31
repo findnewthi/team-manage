@@ -798,6 +798,16 @@ body {
     color: var(--text-muted);
 }
 
+/* Base style for toggle button on desktop */
+.mobile-menu-toggle {
+    display: none;
+}
+
+.navbar-left {
+    display: flex;
+    align-items: center;
+}
+
 /* Mobile Responsiveness */
 @media (max-width: 1024px) {
     .main-content {
@@ -966,16 +976,6 @@ body {
     .btn {
         padding: 0.5rem 0.75rem;
     }
-}
-
-/* Base style for toggle button on desktop */
-.mobile-menu-toggle {
-    display: none;
-}
-
-.navbar-left {
-    display: flex;
-    align-items: center;
 }
 
 

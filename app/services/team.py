@@ -38,17 +38,19 @@ class TeamService:
         """
         error_code = result.get("error_code")
         
-        # 处理账号封禁
-        if error_code == "account_deactivated":
-            logger.warning(f"检测到账号封禁 (account_deactivated),更新 Team {team.id} ({team.email}) 状态为 banned")
+        # 处理账号封禁/失效
+        # OpenAI 返回 account_deactivated 表示账号被封禁
+        # OpenAI 返回 token_invalidated 表示 Access Token 被吊销，通常也意味着 Team 被封或失效
+        if error_code in ["account_deactivated", "token_invalidated"]:
+            status_desc = "封禁 (account_deactivated)" if error_code == "account_deactivated" else "失效 (token_invalidated)"
+            logger.warning(f"检测到账号{status_desc},更新 Team {team.id} ({team.email}) 状态为 banned")
             team.status = "banned"
             await db_session.commit()
             return True
             
-        # 处理 Token 失效
-        # OpenAI 可能会返回 token_invalidated 或者 invalid_grant (刷新时)
-        if error_code in ["token_invalidated", "invalid_grant"]:
-            logger.warning(f"检测到 Token 失效 ({error_code}),更新 Team {team.id} ({team.email}) 状态为 error")
+        # 处理刷新失败 (仅针对刷新场景)
+        if error_code == "invalid_grant":
+            logger.warning(f"检测到刷新 Token 失败 (invalid_grant),更新 Team {team.id} ({team.email}) 状态为 error")
             team.status = "error"
             await db_session.commit()
             return True
@@ -620,7 +622,7 @@ class TeamService:
                     if account_result.get("error_code") == "account_deactivated":
                         error_msg = "账号已封禁 (account_deactivated)"
                     elif account_result.get("error_code") == "token_invalidated":
-                        error_msg = "Token 已失效 (token_invalidated)"
+                        error_msg = "账号已封禁/失效 (token_invalidated)"
                         
                     return {
                         "success": False,
@@ -682,7 +684,7 @@ class TeamService:
                     if members_result.get("error_code") == "account_deactivated":
                         error_msg = "账号已封禁 (account_deactivated)"
                     elif members_result.get("error_code") == "token_invalidated":
-                        error_msg = "Token 已失效 (token_invalidated)"
+                        error_msg = "账号已封禁/失效 (token_invalidated)"
                         
                     return {
                         "success": False,

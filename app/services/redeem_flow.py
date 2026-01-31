@@ -323,7 +323,7 @@ class RedeemFlowService:
                         if invite_result.get("error_code") == "account_deactivated":
                             error_msg = "Team 账号被封禁"
                         elif invite_result.get("error_code") == "token_invalidated":
-                            error_msg = "Team 账号 Token 失效"
+                            error_msg = "Team 账号已封禁/失效"
                     
                     last_error = error_msg
                     if is_fatal and attempt < max_retries - 1:
