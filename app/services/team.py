@@ -227,31 +227,45 @@ class TeamService:
                         "error": "无法从 Token 中提取邮箱,请手动提供邮箱"
                     }
 
-            # 2. 确定要导入的账户列表
+            # 2. 尝试从 API 获取账户信息
             accounts_to_import = []
             team_accounts = []
-
-            if account_id:
-                # 如果用户指定了 account_id, 就不再从 API 获取账户列表 (响应用户需求)
-                # 使用占位符元数据，后续同步会补全
-                selected_account = {
-                    "account_id": account_id,
-                    "name": f"Team-{account_id[:8]}",
-                    "plan_type": "team",
-                    "subscription_plan": "unknown",
-                    "expires_at": None,
-                    "has_active_subscription": True
-                }
-                accounts_to_import.append(selected_account)
-                team_accounts.append(selected_account)
-                logger.info(f"导入时直接使用提供的 account_id: {account_id}")
+            
+            account_result = await self.chatgpt_service.get_account_info(
+                access_token,
+                db_session
+            )
+            
+            if account_result["success"]:
+                team_accounts = account_result["accounts"]
             else:
-                # 3. 调用 ChatGPT API 获取账户列表
-                account_result = await self.chatgpt_service.get_account_info(
-                    access_token,
-                    db_session
-                )
+                logger.warning(f"导入时获取账户信息失败: {account_result['error']}")
 
+            # 3. 确定要导入的账户列表
+            if account_id:
+                # 优先从 API 结果中查找指定的 account_id 以获取真实元数据
+                found_account = next((acc for acc in team_accounts if acc["account_id"] == account_id), None)
+                
+                if found_account:
+                    accounts_to_import.append(found_account)
+                    logger.info(f"导入时找到指定的 account_id: {account_id}, 已获取真实元数据")
+                else:
+                    # 如果未找到或 API 失败，保底使用占位符 (旧逻辑)
+                    placeholder = {
+                        "account_id": account_id,
+                        "name": f"Team-{account_id[:8]}",
+                        "plan_type": "team",
+                        "subscription_plan": "unknown",
+                        "expires_at": None,
+                        "has_active_subscription": True
+                    }
+                    accounts_to_import.append(placeholder)
+                    # 如果 team_accounts 为空，也把占位符加进去，保证后续 TeamAccount 记录创建
+                    if not team_accounts:
+                        team_accounts.append(placeholder)
+                    logger.info(f"导入时未找到指定的 account_id: {account_id}, 使用占位符元数据")
+            else:
+                # 如果没有指定 account_id，必须要求 API 调用成功
                 if not account_result["success"]:
                     return {
                         "success": False,
@@ -259,9 +273,7 @@ class TeamService:
                         "message": None,
                         "error": f"获取账户信息失败: {account_result['error']}"
                     }
-
-                team_accounts = account_result["accounts"]
-
+                
                 if not team_accounts:
                     return {
                         "success": False,
@@ -544,6 +556,16 @@ class TeamService:
                 }
                 return
 
+            # 1.1 按 AT 去重 (防止重复处理同一个 Token 下的多个账号或重复行)
+            seen_tokens = set()
+            unique_data = []
+            for item in parsed_data:
+                token = item.get("token")
+                if token and token not in seen_tokens:
+                    seen_tokens.add(token)
+                    unique_data.append(item)
+            
+            parsed_data = unique_data
             total = len(parsed_data)
             yield {
                 "type": "start",
