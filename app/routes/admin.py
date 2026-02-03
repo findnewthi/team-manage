@@ -1053,6 +1053,46 @@ async def records_page(
         )
 
 
+@router.post("/records/{record_id}/withdraw")
+async def withdraw_record(
+    record_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """
+    撤中使用记录 (管理员功能)
+
+    Args:
+        record_id: 记录 ID
+        db: 数据库会话
+        current_user: 当前用户（需要登录）
+
+    Returns:
+        结果 JSON
+    """
+    try:
+        logger.info(f"管理员请求撤回记录: {record_id}")
+        result = await redemption_service.withdraw_record(record_id, db)
+
+        if not result["success"]:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=result
+            )
+
+        return JSONResponse(content=result)
+
+    except Exception as e:
+        logger.error(f"撤回记录失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "error": f"撤回失败: {str(e)}"
+            }
+        )
+
+
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(
     request: Request,

@@ -710,6 +710,82 @@ class RedemptionService:
         """更新兑换码信息"""
         return await self.bulk_update_codes([code], db_session, has_warranty, warranty_days)
 
+    async def withdraw_record(
+        self,
+        record_id: int,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        撤回使用记录 (删除记录,恢复兑换码,并在 Team 中移除成员/邀请)
+
+        Args:
+            record_id: 记录 ID
+            db_session: 数据库会话
+
+        Returns:
+            结果字典
+        """
+        try:
+            from app.services.team import team_service
+            
+            # 1. 查询记录
+            stmt = select(RedemptionRecord).where(RedemptionRecord.id == record_id).options(
+                selectinload(RedemptionRecord.redemption_code)
+            )
+            result = await db_session.execute(stmt)
+            record = result.scalar_one_or_none()
+
+            if not record:
+                return {"success": False, "error": f"记录 ID {record_id} 不存在"}
+
+            # 2. 调用 TeamService 移除成员/邀请
+            logger.info(f"正在从 Team {record.team_id} 中移除成员 {record.email}")
+            team_result = await team_service.remove_invite_or_member(
+                record.team_id,
+                record.email,
+                db_session
+            )
+
+            if not team_result["success"]:
+                # 即使 Team 移除失败，如果是因为成员已经不在了，我们也继续处理数据库
+                if "成员已不存在" not in str(team_result.get("message", "")) and "用户不存在" not in str(team_result.get("error", "")):
+                    return {
+                        "success": False, 
+                        "error": f"从 Team 移除成员失败: {team_result.get('error') or team_result.get('message')}"
+                    }
+
+            # 3. 恢复兑换码状态
+            code = record.redemption_code
+            if code:
+                # 如果是质保兑换，且还有其他记录，状态可能不应该直接回 unused
+                # 但根据逻辑，目前一个码一个记录（除了质保补发可能产生新记录，但那是两个不同的码吧？）
+                # 查了一下模型，RedemptionCode 有 used_by_email 等字段，说明它是单次使用的设计
+                code.status = "unused"
+                code.used_by_email = None
+                code.used_team_id = None
+                code.used_at = None
+                # 特殊处理质保字段
+                if code.has_warranty:
+                    code.warranty_expires_at = None
+
+            # 4. 删除使用记录
+            await db_session.delete(record)
+            await db_session.commit()
+
+            logger.info(f"撤回记录成功: {record_id}, 邮箱: {record.email}, 兑换码: {record.code}")
+
+            return {
+                "success": True,
+                "message": f"成功撤回记录并恢复兑换码 {record.code}"
+            }
+
+        except Exception as e:
+            await db_session.rollback()
+            logger.error(f"撤回记录失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": f"撤回失败: {str(e)}"}
+
     async def bulk_update_codes(
         self,
         codes: List[str],

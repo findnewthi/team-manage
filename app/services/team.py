@@ -1649,6 +1649,51 @@ class TeamService:
                 "error": f"获取所有 Team 列表失败: {str(e)}"
             }
 
+    async def remove_invite_or_member(
+        self,
+        team_id: int,
+        email: str,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        撤回邀请或删除成员 (根据邮箱自动判断)
+
+        Args:
+            team_id: Team ID
+            email: 目标邮箱
+            db_session: 数据库会话
+
+        Returns:
+            结果字典
+        """
+        try:
+            # 1. 获取最新成员和邀请列表
+            members_result = await self.get_team_members(team_id, db_session)
+            if not members_result["success"]:
+                return members_result
+
+            all_members = members_result["members"]
+            
+            # 2. 查找匹配的记录
+            target = next((m for m in all_members if m["email"] == email), None)
+            
+            if not target:
+                logger.warning(f"在 Team {team_id} 中未找到邮箱为 {email} 的成员或邀请")
+                # 即使没找到也返回成功，以便上层逻辑继续更新记录
+                return {"success": True, "message": "成员已不存在"}
+
+            # 3. 根据状态执行删除
+            if target["status"] == "joined":
+                # 已加入，调用删除成员
+                return await self.delete_team_member(team_id, target["user_id"], db_session)
+            else:
+                # 待加入，调用撤回邀请
+                return await self.revoke_team_invite(team_id, email, db_session)
+
+        except Exception as e:
+            logger.error(f"撤回邀请或删除成员时发生异常: {e}")
+            return {"success": False, "error": str(e)}
+
     async def delete_team(
         self,
         team_id: int,
