@@ -352,6 +352,8 @@ class RedeemFlowService:
                             error_msg = "Team 账号被封禁"
                         elif invite_result.get("error_code") == "token_invalidated":
                             error_msg = "Team 账号已封禁/失效"
+                        elif target_team.status == "full":
+                            error_msg = "Team 席位已满"
                     
                     last_error = error_msg
                     if is_fatal and attempt < max_retries - 1:

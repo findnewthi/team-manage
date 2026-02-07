@@ -31,7 +31,7 @@ class TeamService:
 
     async def _handle_api_error(self, result: Dict[str, Any], team: Team, db_session: AsyncSession) -> bool:
         """
-        检查结果是否表示账号被封禁或 Token 失效,如果是则更新状态
+        检查结果是否表示账号被封禁、Token 失效或 Team 已满,如果是则更新状态
         
         Returns:
             bool: 是否已处理致命错误
@@ -78,8 +78,19 @@ class TeamService:
             team.status = "banned"
             await db_session.commit()
             return True
+
+        # 2. 判定是否为“席位已满”错误
+        full_keywords = ["maximum number of seats", "reached maximum number of seats"]
+        if any(kw in error_msg for kw in full_keywords):
+            logger.warning(f"检测到 Team 席位已满 (msg={error_msg}), 更新 Team {team.id} ({team.email}) 状态为 full")
+            team.status = "full"
+            # 修正当前成员数以防万一
+            if team.current_members < team.max_members:
+                team.current_members = team.max_members
+            await db_session.commit()
+            return True
             
-        # 2. 处理常规刷新失败 (invalid_grant)
+        # 3. 处理常规刷新失败 (invalid_grant)
         # 如果是 invalid_grant, 且上面没判定为封号, 则视为常规刷新异常（可能只是 RT/ST 过期或手动登出）
         if error_code == "invalid_grant" or "invalid_grant" in error_msg:
             logger.warning(f"检测到刷新 Token 失败 (invalid_grant), 累加 Team {team.id} ({team.email}) 错误次数")
