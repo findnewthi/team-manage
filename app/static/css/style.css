@@ -533,8 +533,13 @@ body {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 2px 0;
-    max-width: 100%;
+    padding: 2px 4px;
+    flex: 1;
+    /* Take up remaining space */
+    min-width: 0;
+    /* Allow shrinking */
+    justify-content: flex-end;
+    /* Align pages to the right */
 }
 
 /* Hide scrollbar but keep functionality for cleaner look on some browsers */
@@ -1293,8 +1298,17 @@ body {
 
     .pagination-controls {
         justify-content: flex-end;
-        width: auto;
         padding: 0.5rem 0;
+        /* Scrollable area will be the space between per-page and right edge */
+    }
+
+    .per-page-selector {
+        font-size: 0.75rem;
+        /* Slightly smaller for mobile */
+    }
+
+    .per-page-select {
+        padding: 0.2rem 0.4rem;
     }
 
     .pagination-info {
